@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Vonatverseny</title>
+<style>
+  :root{
+    --navy:#14324F; --cream:#F4EBD0; --brass:#B08D57;
+    --red:#C63B2C;  --grass:#79A85C; --gold:#F2C744;
+  }
+  *{ margin:0; padding:0; box-sizing:border-box; }
+  html,body{ height:100%; overflow:hidden; }
+  body{
+    background:var(--grass);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-user-select:none; user-select:none;
+  }
+  #stage{ position:fixed; inset:0; }
+  canvas{ position:absolute; inset:0; touch-action:none; display:block; }
+
+  .sign{
+    background:var(--navy); color:var(--cream);
+    border:3px solid var(--cream);
+    box-shadow:0 0 0 4px var(--navy), 0 6px 18px rgba(0,0,0,.35);
+    border-radius:10px; text-transform:uppercase;
+    letter-spacing:.14em; font-weight:800;
+  }
+  #levelSign{
+    position:absolute; top:12px; left:50%; transform:translateX(-50%);
+    padding:.4em 1.1em; font-size:clamp(13px,2.2vw,18px);
+    display:none; pointer-events:none;
+  }
+
+  .padBtn{
+    position:absolute; bottom:20px;
+    font-weight:900; letter-spacing:.08em; text-transform:uppercase;
+    border-radius:999px; cursor:pointer; display:none;
+    touch-action:manipulation; color:var(--cream);
+  }
+  .padBtn:active{ transform:scale(.92); }
+  #steamBtn{
+    right:16px; padding:.75em 1.6em; font-size:clamp(19px,4vw,28px);
+    background:var(--red); border:3px solid var(--cream);
+    box-shadow:0 0 0 4px var(--red), 0 8px 20px rgba(0,0,0,.35);
+  }
+  #jumpBtn{
+    left:16px; padding:.75em 1.4em; font-size:clamp(17px,3.4vw,24px);
+    background:var(--navy); border:3px solid var(--cream);
+    box-shadow:0 0 0 4px var(--navy), 0 8px 20px rgba(0,0,0,.35);
+  }
+
+  #overlay{
+    position:absolute; inset:0; display:flex;
+    align-items:center; justify-content:center;
+    background:rgba(20,50,79,.25);
+  }
+  #overlay.hidden{ display:none; }
+  .panel{
+    padding:24px 26px; max-width:min(94vw,540px);
+    max-height:88vh; overflow-y:auto; text-align:center;
+  }
+  .panel h1{ font-size:clamp(22px,5.5vw,34px); letter-spacing:.16em; margin-bottom:.3em; }
+  .panel h2{ font-size:clamp(15px,3vw,19px); letter-spacing:.12em; margin:.7em 0 .3em; }
+  .panel p, .panel label{
+    display:block; text-transform:none; letter-spacing:normal; font-weight:400;
+    font-size:clamp(13px,2.3vw,15px); line-height:1.55; margin:.4em 0;
+    color:#e8dfc6; text-align:center;
+  }
+  .panel .stat{ font-weight:700; color:var(--cream); }
+  .panel .gold{ font-weight:800; color:var(--gold); }
+  .panel .warn{ color:#f0b9ae; font-size:12px; }
+  .panel button{
+    margin-top:10px; padding:.55em 1.5em;
+    font-size:clamp(14px,2.8vw,18px); font-weight:800;
+    letter-spacing:.08em; text-transform:uppercase;
+    color:var(--navy); background:var(--cream);
+    border:0; border-radius:8px; cursor:pointer;
+  }
+  .panel button:active{ transform:scale(.95); }
+  .panel button.secondary{
+    background:transparent; color:var(--cream);
+    border:2px solid var(--cream);
+  }
+  .panel button:disabled{ opacity:.45; cursor:default; }
+  .panel input{
+    width:100%; max-width:300px; margin:4px auto; display:block;
+    padding:.55em .8em; font-size:16px; border-radius:8px;
+    border:2px solid var(--cream); background:#0f2740; color:var(--cream);
+  }
+  .row{
+    display:flex; align-items:center; justify-content:space-between;
+    gap:10px; padding:8px 10px; margin:6px 0;
+    background:rgba(244,235,208,.08); border-radius:8px;
+  }
+  .row .info{ text-align:left; flex:1; }
+  .row .name{ font-weight:800; letter-spacing:.05em; font-size:14px; color:var(--cream); }
+  .row .desc{
+    font-size:12px; color:#cfc6ab; font-weight:400;
+    text-transform:none; letter-spacing:normal;
+  }
+  .row button{ margin:0; padding:.45em 1em; font-size:13px; white-space:nowrap; }
+  .swatch{
+    width:26px; height:26px; border-radius:6px;
+    border:2px solid var(--cream); flex:none;
+  }
+  kbd{
+    background:var(--cream); color:var(--navy); border-radius:4px;
+    padding:0 .4em; font-weight:700; font-family:inherit;
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="game"></canvas>
+  <div id="levelSign" class="sign">1. szint</div>
+  <button id="jumpBtn"  class="padBtn">Ugrás</button>
+  <button id="steamBtn" class="padBtn">Gőzt!</button>
+  <div id="overlay"><div class="panel sign" id="panel"></div></div>
+</div>
+
+<script>
+'use strict';
+
+/* =====================  JÁTÉK-BEÁLLÍTÁSOK  ===================== */
+const CFG = {
+  LEN_BASE : 520,  LEN_STEP : 40,
+  IMPULSE  : 2.3,  DRAG     : 0.9,   VMAX : 24,
+  BOOST    : 7,    BOOST_CAP: 29,    JUMP_T : 0.55,
+  LAT_A    : 1.4,  LIM_MIN  : 9,     LIM_MAX: 15,
+  BOT_BASE : 8.0,  BOT_STEP : 1.3,   BOT_ACC: 6,  BOT_BRAKE: 9,
+};
+const DS = 2;
+
+/* =====================  FEJLESZTÉSEK ÉS FESTÉKEK (katalógus)  =====
+   Adatként, nem kódba szórva — az appban ez költözik majd adatbázisba. */
+const UPS = [
+  { id:'kazan',   name:'Kazán',          max:5, base:40,
+    desc:'Erősebb gőzlöket nyomásonként (+8% / szint)' },
+  { id:'aram',    name:'Áramvonalazás',  max:5, base:40,
+    desc:'Lassabban fogy a sebesség (−6% / szint)' },
+  { id:'futomu',  name:'Futómű',         max:5, base:50,
+    desc:'A táblánál gyorsabb kanyarvétel (+5% / szint)' },
+  { id:'rugozas', name:'Rugózás',        max:4, base:45,
+    desc:'Hosszabb ugrás (+8% / szint)' },
+  { id:'homok',   name:'Homokszóró',     max:3, base:70,
+    desc:'Enyhébb és rövidebb megcsúszás' },
+];
+const upCost = (u, lvl) => Math.round(u.base * Math.pow(1.6, lvl));
+
+const PAINTS = [
+  { c:'#C63B2C', name:'Jelzőpiros', price:0   },
+  { c:'#2E5FA3', name:'Vasútkék',   price:60  },
+  { c:'#3E7A3E', name:'Erdőzöld',   price:60  },
+  { c:'#6B3FA0', name:'Estilila',   price:90  },
+  { c:'#E8B93E', name:'Aranysárga', price:150 },
+  { c:'#26282B', name:'Éjfekete',   price:220 },
+];
+
+/* a profil fejlesztéseiből számolt TÉNYLEGES paraméterek */
+function effOf(p){
+  const u = p.up;
+  return {
+    impulse : CFG.IMPULSE * (1 + .08*u.kazan),
+    drag    : CFG.DRAG    * Math.pow(.94, u.aram),
+    limMul  : 1 + .05*u.futomu,
+    jumpT   : CFG.JUMP_T  * (1 + .08*u.rugozas),
+    skidKeep: .55 + .06*u.homok,
+    skidT   : .9  - .12*u.homok,
+  };
+}
+
+/* ---------- segédek ---------- */
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const esc = s => String(s).replace(/[&<>"']/g,
+  m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
+  let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t;
+  return ((t^t>>>14)>>>0)/4294967296; }; }
+
+/* =====================  MENTÉS — tartós tároló  =====================
+   Minden összetartozó adat EGY kulcs alatt: egyetlen írás/olvasás,
+   nincs részleges mentés. Ha a tároló nem elérhető, a játék megy
+   tovább memóriából, és a profilképernyő jelzi, hogy nincs mentés. */
+let DATA = { v:1, profiles:[], last:null };
+let storageOK = typeof window.storage?.get === 'function';
+
+async function loadData(){
+  if(!storageOK) return;
+  try{
+    const r = await window.storage.get('vonatverseny-save');
+    if(r && r.value) DATA = JSON.parse(r.value);
+  }catch(e){ /* nincs még mentés — első indítás, ez nem hiba */ }
+}
+async function saveData(){
+  if(!storageOK) return;
+  try{ await window.storage.set('vonatverseny-save', JSON.stringify(DATA)); }
+  catch(e){ storageOK = false; }
+}
+function ensureProfile(p){                    // régi mentések kiegészítése
+  p.up ??= {}; for(const u of UPS) p.up[u.id] ??= 0;
+  p.paint ??= PAINTS[0].c;
+  p.paints ??= [PAINTS[0].c];
+  p.level ??= 1; p.coins ??= 0;
+  return p;
+}
+const P = () => DATA.profiles.find(x => x.id === DATA.last);
+
+/* ---------- DOM ---------- */
+const canvas  = document.getElementById('game');
+const ctx     = canvas.getContext('2d');
+const stage   = document.getElementById('stage');
+const overlay = document.getElementById('overlay');
+const panel   = document.getElementById('panel');
+const signEl  = document.getElementById('levelSign');
+const steamBtn= document.getElementById('steamBtn');
+const jumpBtn = document.getElementById('jumpBtn');
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* =====================  JÁTÉKÁLLAPOT  ===================== */
+const S = {
+  mode:'menu', level:1, count:0, raceT:0, goFlash:0,
+  player:{ p:0, v:0 }, bot:{ p:0, v:0, seed:0 },
+  air:0, skidT:0, safeT:0,
+  boostGot:0, coinRun:0,
+  eff: effOf(ensureProfile({up:{}})),      // alapértékek, amíg nincs profil
+  puffs:[], sparks:[], texts:[],
+  shake:0, lockUntil:0,
+  cam:{ x:0, y:0 },
+};
+let T = null;
+
+/* =====================  MÉRETEZÉS / KAMERA  ===================== */
+let W=0, H=0, SCALE=10;
+function resize(){
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  W = stage.clientWidth; H = stage.clientHeight;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  SCALE = Math.max(4, Math.min(H/55, W/70));
+}
+addEventListener('resize', resize);
+const w2sx = wx => (wx - S.cam.x)*SCALE;
+const w2sy = wy => (wy - S.cam.y)*SCALE + H*0.5;
+
+/* =====================  PÁLYAGENERÁLÁS  ===================== */
+function genTrack(level){
+  const rnd = mulberry32(4242 + level*101);
+  const LEN = Math.min(CFG.LEN_BASE + CFG.LEN_STEP*(level-1), 900);
+
+  const segs = [{type:'S', len:80}];
+  const curves = [];
+  let built = 80, h = 0;
+  while(built < LEN + 80){
+    let dir = Math.abs(h) > 0.3 ? -Math.sign(h) : (rnd() < .5 ? 1 : -1);
+    const R = 60 + rnd()*90;
+    let ang = 0.5 + rnd()*0.6;
+    const room = dir > 0 ? 0.9 - h : 0.9 + h;
+    if(room < 0.25){ dir = -Math.sign(h); }
+    ang = Math.min(ang, dir > 0 ? 0.9 - h : 0.9 + h);
+    const lim = clamp(Math.sqrt(CFG.LAT_A * R), CFG.LIM_MIN, CFG.LIM_MAX);
+    curves.push({ s:built, lim });
+    segs.push({type:'C', R, ang: ang*dir});
+    built += R*ang; h += ang*dir;
+    const sl = 45 + rnd()*55;
+    segs.push({type:'S', len:sl});
+    built += sl;
+  }
+
+  const pts = []; let x=0, y=0; h=0;
+  for(const sg of segs){
+    if(sg.type === 'S'){
+      const n = Math.ceil(sg.len/DS);
+      for(let i=0;i<n;i++){
+        pts.push({x, y, h, k:0, lim:999});
+        x += Math.cos(h)*DS; y += Math.sin(h)*DS;
+      }
+    }else{
+      const L = Math.abs(sg.R*sg.ang), n = Math.ceil(L/DS), dh = sg.ang/n;
+      const k = 1/sg.R;
+      const lim = clamp(Math.sqrt(CFG.LAT_A*sg.R), CFG.LIM_MIN, CFG.LIM_MAX);
+      for(let i=0;i<n;i++){
+        pts.push({x, y, h, k, lim});
+        h += dh;
+        x += Math.cos(h)*DS; y += Math.sin(h)*DS;
+      }
+    }
+  }
+
+  const signs = curves
+    .filter(c => c.s > 40 && c.s < LEN)
+    .map(c => ({ s:c.s - 28, kmh:Math.round(c.lim*3.6) }));
+
+  /* akadályok és gyorsítók — váltakozva, egyenesre csúsztatva */
+  const obstacles = [], boosters = [];
+  let cursor = 110, giveBooster = rnd() < .5;
+  while(cursor < LEN - 40){
+    cursor += 35 + rnd()*35;
+    let i = Math.min(Math.floor(cursor/DS), pts.length-1);
+    let tries = 0;
+    while(pts[i].k > 0.002 && tries < 60 && i < pts.length-1){ i++; tries++; }
+    if(pts[i].k > 0.002) continue;
+    const s = i*DS;
+    if(s > LEN - 30) break;
+    (giveBooster ? boosters : obstacles).push({ s, hit:false, taken:false });
+    giveBooster = !giveBooster;
+    cursor = s;
+  }
+
+  /* érmesorok: 4–5 érme, 2,6 m-enként, a földön — átgurulva gyűjthetők.
+     Ütköző akadály/gyorsító esetén nem ELDOBJUK a sort, hanem az
+     objektum MÖGÉ csúsztatjuk és újrapróbáljuk — az első változat
+     eldobott, és emiatt volt olyan pálya, amin alig maradt érme. */
+  const coins = [];
+  const objs = [...obstacles, ...boosters];
+  let cc = 95, guard = 0;
+  while(cc < LEN - 60 && ++guard < 2000){   // a guard védőháló: ciklus SOSEM ragadhat be
+    let i = Math.min(Math.floor(cc/DS), pts.length-1);
+    while(pts[i].k > 0.004 && i < pts.length-1) i++;      // egyenesig csúszunk
+    const s = i*DS;
+    if(s > LEN - 60) break;
+    const n = 4 + Math.floor(rnd()*2);
+    const end = s + (n-1)*2.6;
+    const blocker = objs.find(o => o.s > s - 9 && o.s < end + 9);
+    if(blocker){
+      /* legalább DS-nyit MINDIG lépünk előre — enélkül a rácsra
+         kerekítés visszavihet ugyanahhoz a blokkolóhoz (végtelen ciklus) */
+      cc = Math.max(cc + DS, blocker.s + 9 + DS);
+      continue;
+    }
+    const iEnd = Math.min(Math.floor(end/DS), pts.length-1);
+    if(pts[iEnd].k > 0.004){ cc = end + 2; continue; }    // a sor vége kanyarba lógna
+    for(let j=0;j<n;j++) coins.push({ s: s + j*2.6, taken:false });
+    cc = end + 22 + rnd()*26;
+  }
+
+  const trees = [], patches = [];
+  for(let s = 0; s < built; s += 9){
+    const i = Math.min(Math.floor(s/DS), pts.length-1);
+    const p = pts[i], nx = -Math.sin(p.h), ny = Math.cos(p.h);
+    if(rnd() < .5){
+      const o = (14 + rnd()*40) * (rnd() < .5 ? 1 : -1);
+      trees.push({ x:p.x+nx*o, y:p.y+ny*o, r:2+rnd()*2.2, tone:rnd() });
+    }
+    if(rnd() < .6){
+      const o = (rnd()*90 - 45);
+      patches.push({ x:p.x+nx*o, y:p.y+ny*o, rx:5+rnd()*12,
+                     ry:2.5+rnd()*5, rot:rnd()*3, tone:rnd() });
+    }
+  }
+  return { LEN, pts, signs, obstacles, boosters, coins, trees, patches };
+}
+
+function pointAt(s){
+  const f = clamp(s/DS, 0, T.pts.length - 1.001);
+  const i = Math.floor(f), t = f - i;
+  const a = T.pts[i], b = T.pts[i+1];
+  return { x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t,
+           h:a.h+(b.h-a.h)*t, lim:Math.min(a.lim, b.lim) };
+}
+function minLimAhead(s, dist){
+  let m = 999;
+  const i0 = clamp(Math.floor(s/DS), 0, T.pts.length-1);
+  const i1 = clamp(Math.ceil((s+dist)/DS), 0, T.pts.length-1);
+  for(let i=i0; i<=i1; i++) m = Math.min(m, T.pts[i].lim);
+  return m;
+}
+function sAtX(xT){
+  let lo=0, hi=T.pts.length-1;
+  while(lo < hi){ const m=(lo+hi)>>1; T.pts[m].x < xT ? lo=m+1 : hi=m; }
+  return lo*DS;
+}
+const OFF_P = 5, OFF_B = -5;
+
+/* =====================  RAJZOLÁS  ===================== */
+function drawGround(){
+  ctx.fillStyle = '#79A85C'; ctx.fillRect(0,0,W,H);
+  const xMin = S.cam.x - 30, xMax = S.cam.x + W/SCALE + 30;
+  for(const p of T.patches){
+    if(p.x < xMin || p.x > xMax) continue;
+    ctx.fillStyle = p.tone < .5 ? '#6F9E53' : '#83B164';
+    ctx.beginPath();
+    ctx.ellipse(w2sx(p.x), w2sy(p.y), p.rx*SCALE, p.ry*SCALE, p.rot, 0, 7);
+    ctx.fill();
+  }
+}
+function drawTrees(){
+  const xMin = S.cam.x - 10, xMax = S.cam.x + W/SCALE + 10;
+  for(const t of T.trees){
+    if(t.x < xMin || t.x > xMax) continue;
+    const x = w2sx(t.x), y = w2sy(t.y), r = t.r*SCALE;
+    ctx.fillStyle='rgba(0,0,0,.15)'; ctx.beginPath(); ctx.arc(x+r*.25,y+r*.25,r,0,7); ctx.fill();
+    ctx.fillStyle='#3E7A3E'; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill();
+    ctx.fillStyle='#4F8F4A'; ctx.beginPath(); ctx.arc(x-r*.3,y-r*.3,r*.55,0,7); ctx.fill();
+  }
+}
+function drawTracks(s0, s1){
+  for(const off of [OFF_B, OFF_P]){
+    ctx.strokeStyle = '#7A5230'; ctx.lineWidth = 0.55*SCALE;
+    ctx.beginPath();
+    for(let s = Math.floor(s0/2.5)*2.5; s < s1; s += 2.5){
+      const p = pointAt(s), nx = -Math.sin(p.h), ny = Math.cos(p.h);
+      const cx = p.x + nx*off, cy = p.y + ny*off;
+      ctx.moveTo(w2sx(cx + nx*1.6), w2sy(cy + ny*1.6));
+      ctx.lineTo(w2sx(cx - nx*1.6), w2sy(cy - ny*1.6));
+    }
+    ctx.stroke();
+    for(const ro of [-0.8, 0.8]){
+      ctx.strokeStyle = '#6D6A63'; ctx.lineWidth = 0.28*SCALE;
+      ctx.beginPath();
+      for(let s = s0; s < s1; s += 3){
+        const p = pointAt(s), nx = -Math.sin(p.h), ny = Math.cos(p.h);
+        const o = off + ro;
+        const X = w2sx(p.x + nx*o), Y = w2sy(p.y + ny*o);
+        s === s0 ? ctx.moveTo(X,Y) : ctx.lineTo(X,Y);
+      }
+      ctx.stroke();
+    }
+  }
+}
+function drawFinish(){
+  const p = pointAt(T.LEN);
+  ctx.save();
+  ctx.translate(w2sx(p.x), w2sy(p.y)); ctx.rotate(p.h);
+  const sq = SCALE;
+  for(let r = 0; r < 2; r++)
+    for(let i = -9; i < 9; i++){
+      ctx.fillStyle = (i + r) % 2 ? '#222' : '#f5f5f5';
+      ctx.fillRect(r*sq, i*sq, sq, sq);
+    }
+  ctx.restore();
+}
+function drawSigns(s0, s1){
+  for(const sg of T.signs){
+    if(sg.s < s0 - 10 || sg.s > s1 + 10) continue;
+    const p = pointAt(sg.s), nx = -Math.sin(p.h), ny = Math.cos(p.h);
+    const x = w2sx(p.x + nx*9.5), y = w2sy(p.y + ny*9.5);
+    const r = SCALE*1.4;
+    ctx.fillStyle = '#5a4632'; ctx.fillRect(x-1.5, y, 3, r*1.1);
+    ctx.fillStyle = '#E8B93E';
+    ctx.beginPath(); ctx.roundRect(x-r, y-r*1.6, r*2, r*1.6, r*.3); ctx.fill();
+    ctx.strokeStyle = '#C63B2C'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#1c1c1c'; ctx.textAlign = 'center';
+    ctx.font = `800 ${Math.max(10, r*.9)}px system-ui`;
+    ctx.fillText(sg.kmh, x, y - r*.55);
+  }
+}
+function drawObstacles(s0, s1){
+  for(const ob of T.obstacles){
+    if(ob.s < s0 - 8 || ob.s > s1 + 8) continue;
+    const p = pointAt(ob.s), nx = -Math.sin(p.h), ny = Math.cos(p.h);
+    ctx.save();
+    ctx.translate(w2sx(p.x + nx*OFF_P), w2sy(p.y + ny*OFF_P));
+    ctx.rotate(p.h); ctx.scale(SCALE, SCALE);
+    ctx.fillStyle = ob.hit ? '#5e452c' : '#7A5230';
+    const gap = ob.hit ? 0.9 : 0;
+    ctx.beginPath(); ctx.roundRect(-0.7, -2.4 - gap, 1.4, 2.4, .6); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(-0.7,  gap,       1.4, 2.4, .6); ctx.fill();
+    ctx.fillStyle = '#9c7146';
+    ctx.beginPath(); ctx.arc(0, -2.4 - gap, .55, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(0,  2.4 + gap, .55, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+}
+function drawBoosters(s0, s1, time){
+  for(const b of T.boosters){
+    if(b.taken || b.s < s0 - 8 || b.s > s1 + 8) continue;
+    const p = pointAt(b.s), nx = -Math.sin(p.h), ny = Math.cos(p.h);
+    const gx = w2sx(p.x + nx*OFF_P), gy = w2sy(p.y + ny*OFF_P);
+    const bob = Math.sin(time*3 + b.s)*3;
+    ctx.fillStyle = 'rgba(0,0,0,.18)';
+    ctx.beginPath(); ctx.ellipse(gx, gy, SCALE*.9, SCALE*.35, 0, 0, 7); ctx.fill();
+    ctx.save(); ctx.translate(gx, gy - SCALE*1.6 + bob); ctx.rotate(time*1.2);
+    ctx.fillStyle = '#F2C744';
+    ctx.beginPath();
+    for(let i=0;i<10;i++){
+      const R = i%2 ? SCALE*.5 : SCALE*1.05, a = i*Math.PI/5;
+      ctx.lineTo(Math.cos(a)*R, Math.sin(a)*R);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#B08D57'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.restore();
+  }
+}
+function drawCoins(s0, s1, time){
+  for(const c of T.coins){
+    if(c.taken || c.s < s0 - 5 || c.s > s1 + 5) continue;
+    const p = pointAt(c.s), nx = -Math.sin(p.h), ny = Math.cos(p.h);
+    const x = w2sx(p.x + nx*OFF_P), y = w2sy(p.y + ny*OFF_P);
+    const spin = Math.abs(Math.sin(time*3.5 + c.s)) * .7 + .3;   // "pörgés"
+    ctx.fillStyle = '#B08D57';
+    ctx.beginPath(); ctx.ellipse(x, y, SCALE*.55*spin, SCALE*.55, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#F2C744';
+    ctx.beginPath(); ctx.ellipse(x, y-1, SCALE*.45*spin, SCALE*.45, 0, 0, 7); ctx.fill();
+  }
+}
+
+function shade(hex, amt){
+  const n = parseInt(hex.slice(1),16);
+  const f = v => clamp(v+amt, 0, 255);
+  return `rgb(${f(n>>16)},${f((n>>8)&255)},${f(n&255)})`;
+}
+function drawUnit(sFront, off, len, wid, body, stripe, isLoco, airH){
+  const p = pointAt(sFront - len/2);
+  const nx = -Math.sin(p.h), ny = Math.cos(p.h);
+  const x = w2sx(p.x + nx*off), y = w2sy(p.y + ny*off);
+  if(airH > 0.01){
+    ctx.fillStyle = 'rgba(0,0,0,.22)';
+    ctx.beginPath();
+    ctx.ellipse(x, y, len*.5*SCALE, wid*.55*SCALE, p.h, 0, 7); ctx.fill();
+  }
+  ctx.save();
+  ctx.translate(x, y - airH*SCALE*2.2);
+  ctx.rotate(p.h);
+  ctx.scale(SCALE*(1 + airH*.22), SCALE*(1 + airH*.22));
+  ctx.beginPath(); ctx.roundRect(-len/2+.15, -wid/2+.15, len, wid, .9);
+  ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.fill();
+  ctx.beginPath(); ctx.roundRect(-len/2, -wid/2, len, wid, .9);
+  ctx.fillStyle = body; ctx.fill();
+  if(isLoco){
+    ctx.beginPath(); ctx.roundRect(-len/2+1, -wid/2+.6, 3.4, wid-1.2, .5);
+    ctx.fillStyle = shade(body,-25); ctx.fill();
+    ctx.fillStyle = stripe; ctx.fillRect(len*0.02, -wid/2+.6, .9, wid-1.2);
+    ctx.beginPath(); ctx.arc(len/2-2.2, 0, 1.0, 0, 7);
+    ctx.fillStyle = '#26282B'; ctx.fill();
+    ctx.beginPath(); ctx.arc(len/2-2.2, 0, .45, 0, 7);
+    ctx.fillStyle = '#4a4d52'; ctx.fill();
+  }else{
+    ctx.beginPath(); ctx.roundRect(-len/2+.8, -wid/2+.8, len-1.6, wid-1.6, .5);
+    ctx.fillStyle = shade(body,-18); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawTrain(ent, off, body, stripe, airH){
+  drawUnit(ent.p - 13 - 1.2, off, 10, 3.8, body, stripe, false, airH);
+  drawUnit(ent.p,            off, 13, 4.2, body, stripe, true,  airH);
+}
+function chimney(ent, off){
+  const p = pointAt(ent.p - 2.2);
+  const nx = -Math.sin(p.h), ny = Math.cos(p.h);
+  return { x:p.x + nx*off, y:p.y + ny*off };
+}
+
+/* ---------- részecskék, feliratok ---------- */
+function puff(wx, wy, n){
+  if(REDUCED) n = Math.min(n,1);
+  for(let i=0;i<n;i++)
+    S.puffs.push({ x:wx+Math.random()*1.2-.6, y:wy+Math.random()*1.2-.6,
+                   r:.6+Math.random()*.5, vx:-4-Math.random()*3,
+                   vy:Math.random()*3-1.5, life:1 });
+}
+function spark(wx, wy, n, col){
+  for(let i=0;i<n;i++)
+    S.sparks.push({ x:wx, y:wy, vx:Math.random()*10-5,
+                    vy:Math.random()*10-5, life:.5+Math.random()*.3,
+                    col: col || '#F2913D' });
+}
+function ftext(wx, wy, txt, col){ S.texts.push({ x:wx, y:wy, txt, col, life:1.2 }); }
+function drawParticles(dt){
+  for(const p of S.puffs){
+    p.x += p.vx*dt; p.y += p.vy*dt; p.r += 2.6*dt; p.life -= 1.1*dt;
+    ctx.globalAlpha = Math.max(p.life,0)*.8; ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(w2sx(p.x), w2sy(p.y), p.r*SCALE, 0, 7); ctx.fill();
+  }
+  for(const p of S.sparks){
+    p.x += p.vx*dt; p.y += p.vy*dt; p.life -= 2*dt;
+    ctx.globalAlpha = Math.max(p.life,0); ctx.fillStyle = p.col;
+    ctx.beginPath(); ctx.arc(w2sx(p.x), w2sy(p.y), 2.4, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  for(const t of S.texts){
+    t.life -= dt;
+    ctx.globalAlpha = clamp(t.life,0,1);
+    ctx.fillStyle = t.col; ctx.textAlign = 'center';
+    ctx.font = `900 ${Math.round(SCALE*2.2)}px system-ui`;
+    ctx.fillText(t.txt, w2sx(t.x), w2sy(t.y) - (1.2-t.life)*40 - SCALE*4);
+  }
+  ctx.globalAlpha = 1;
+  S.puffs  = S.puffs.filter(p => p.life > 0);
+  S.sparks = S.sparks.filter(p => p.life > 0);
+  S.texts  = S.texts.filter(t => t.life > 0);
+}
+
+/* ---------- HUD ---------- */
+function drawGauge(){
+  const cx = 64, cy = 64, R = 42;
+  ctx.beginPath(); ctx.arc(cx,cy,R+5,0,7); ctx.fillStyle='#B08D57'; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,7);   ctx.fillStyle='#F4EBD0'; ctx.fill();
+  const a0 = Math.PI*.75, a1 = Math.PI*2.25;
+  ctx.strokeStyle='#C63B2C'; ctx.lineWidth=6;
+  ctx.beginPath(); ctx.arc(cx,cy,R-7, a0+(a1-a0)*.78, a1); ctx.stroke();
+  ctx.strokeStyle='#14324F'; ctx.lineWidth=2;
+  for(let i=0;i<=8;i++){
+    const a = a0+(a1-a0)*i/8;
+    ctx.beginPath();
+    ctx.moveTo(cx+Math.cos(a)*(R-4),  cy+Math.sin(a)*(R-4));
+    ctx.lineTo(cx+Math.cos(a)*(R-12), cy+Math.sin(a)*(R-12));
+    ctx.stroke();
+  }
+  const frac = clamp(S.player.v/CFG.VMAX, 0, 1.05);
+  const jit  = S.player.v > CFG.VMAX ? (Math.random()-.5)*.05 : 0;
+  const a = a0 + (a1-a0)*frac + jit;
+  ctx.strokeStyle='#C63B2C'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(cx,cy);
+  ctx.lineTo(cx+Math.cos(a)*(R-14), cy+Math.sin(a)*(R-14)); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx,cy,4,0,7); ctx.fillStyle='#14324F'; ctx.fill();
+  ctx.fillStyle='#14324F'; ctx.textAlign='center';
+  ctx.font='700 9px system-ui';  ctx.fillText('GŐZ', cx, cy+18);
+  ctx.font='800 12px system-ui';
+  ctx.fillText(Math.round(S.player.v*3.6)+' km/h', cx, cy+R+18);
+}
+function drawCoinHud(){
+  const x = W-30, y = 30;
+  ctx.fillStyle='#B08D57'; ctx.beginPath(); ctx.arc(x, y, 12, 0, 7); ctx.fill();
+  ctx.fillStyle='#F2C744'; ctx.beginPath(); ctx.arc(x, y-1, 9.5, 0, 7); ctx.fill();
+  ctx.fillStyle='#F4EBD0'; ctx.textAlign='right';
+  ctx.font='900 17px system-ui';
+  ctx.strokeStyle='rgba(20,50,79,.8)'; ctx.lineWidth=4; ctx.lineJoin='round';
+  ctx.strokeText(S.coinRun, x-20, y+6);
+  ctx.fillText(S.coinRun, x-20, y+6);
+}
+function drawMinimap(){
+  const x0 = W*.32, x1 = W*.68, y = 58;
+  ctx.strokeStyle = 'rgba(20,50,79,.85)'; ctx.lineWidth = 8; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke();
+  ctx.strokeStyle = '#F4EBD0'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke();
+  ctx.fillStyle = '#F4EBD0'; ctx.fillRect(x1-1, y-7, 2, 14);
+  const dot = (p,col,r) => {
+    ctx.fillStyle = col; ctx.beginPath();
+    ctx.arc(x0 + (x1-x0)*clamp(p/T.LEN,0,1), y, r, 0, 7); ctx.fill();
+  };
+  dot(S.bot.p,   '#2F3237', 5);
+  dot(S.player.p, P() ? P().paint : '#C63B2C', 6);
+}
+
+/* =====================  JÁTÉKMENET  ===================== */
+function startLevel(){
+  S.level = P().level;
+  S.eff = effOf(P());
+  T = genTrack(S.level);
+  Object.assign(S.player, {p:0, v:0});
+  Object.assign(S.bot,    {p:0, v:0, seed:Math.random()*10});
+  S.air = 0; S.skidT = 0; S.safeT = 0;
+  S.boostGot = 0; S.coinRun = 0;
+  S.puffs = []; S.sparks = []; S.texts = [];
+  S.raceT = 0; S.goFlash = 0; S.count = 3; S.mode = 'count';
+  const st = pointAt(0);
+  S.cam.x = st.x - (W*.30)/SCALE; S.cam.y = st.y;
+  signEl.textContent = S.level + '. szint';
+  signEl.style.display = 'block';
+  overlay.classList.add('hidden');
+  steamBtn.style.display = jumpBtn.style.display = 'block';
+}
+function tap(){
+  if(S.mode !== 'race' || S.skidT > 0 || S.air > 0) return;
+  S.player.v = Math.min(S.player.v + S.eff.impulse, CFG.VMAX);
+  const c = chimney(S.player, OFF_P);
+  puff(c.x, c.y, 2);
+}
+function jump(){
+  if(S.mode !== 'race' || S.skidT > 0 || S.air > 0) return;
+  S.air = S.eff.jumpT;
+}
+
+let botPuffT = 0;
+function update(dt){
+  if(S.mode === 'count'){
+    S.count -= dt;
+    if(S.count <= 0){ S.mode = 'race'; S.goFlash = .7; }
+    return;
+  }
+  if(S.mode !== 'race') return;
+  S.raceT += dt;
+  if(S.goFlash > 0) S.goFlash -= dt;
+  if(S.air   > 0) S.air   -= dt;
+  if(S.skidT > 0) S.skidT -= dt;
+  if(S.safeT > 0) S.safeT -= dt;
+
+  S.player.v *= Math.exp(-S.eff.drag*dt);
+  S.player.p += S.player.v*dt;
+
+  /* megcsúszás — a futómű fejlesztés emeli a SAJÁT határod a tábla fölé */
+  const cur = pointAt(S.player.p);
+  const myLim = cur.lim * S.eff.limMul;
+  if(S.safeT <= 0 && cur.lim < 900 && S.player.v > myLim + 0.6){
+    S.skidT = S.eff.skidT; S.safeT = 2.2; S.shake = .4;
+    S.player.v = myLim * S.eff.skidKeep;
+    const c = chimney(S.player, OFF_P);
+    spark(c.x, c.y, 14);
+    ftext(c.x, c.y, 'MEGCSÚSZTÁL!', '#C63B2C');
+  }
+  if(S.skidT > 0){
+    const c = chimney(S.player, OFF_P);
+    if(Math.random() < .6) spark(c.x, c.y, 2);
+  }
+
+  const airborne = S.air > 0;
+  for(const ob of T.obstacles){
+    if(!ob.hit && !airborne && Math.abs(S.player.p - ob.s) < 2.2){
+      ob.hit = true; S.player.v *= .35; S.shake = .35;
+      const c = chimney(S.player, OFF_P);
+      spark(c.x, c.y, 10); ftext(c.x, c.y, 'BUMM!', '#7A5230');
+    }
+  }
+  for(const b of T.boosters){
+    if(!b.taken && airborne && Math.abs(S.player.p - b.s) < 3.5){
+      b.taken = true; S.boostGot++;
+      S.player.v = Math.min(S.player.v + CFG.BOOST, CFG.BOOST_CAP);
+      const c = chimney(S.player, OFF_P);
+      ftext(c.x, c.y, '+GYORSÍTÁS!', '#F2C744');
+    }
+  }
+  /* érmék: csak a FÖLDÖN gurulva — ugrás közben átrepülsz felettük,
+     így az érmesor és az ugrás nem üti egymást, hanem döntés lesz */
+  for(const c of T.coins){
+    if(!c.taken && !airborne && Math.abs(S.player.p - c.s) < 1.6){
+      c.taken = true; S.coinRun++;
+      const ch = chimney(S.player, OFF_P);
+      spark(ch.x, ch.y, 2, '#F2C744');
+    }
+  }
+
+  const lvlTarget = (CFG.BOT_BASE + CFG.BOT_STEP*(S.level-1))
+                  * (1 + .05*Math.sin(S.raceT*.9 + S.bot.seed));
+  const ahead = minLimAhead(S.bot.p, 10 + S.bot.v*2.2);
+  const target = Math.min(lvlTarget, ahead - .3);
+  if(S.bot.v > target) S.bot.v = Math.max(target, S.bot.v - CFG.BOT_BRAKE*dt);
+  else                 S.bot.v = Math.min(target, S.bot.v + CFG.BOT_ACC*dt);
+  S.bot.p += S.bot.v*dt;
+
+  botPuffT += dt;
+  if(botPuffT > .22 && S.bot.v > 1){
+    botPuffT = 0;
+    const c = chimney(S.bot, OFF_B); puff(c.x, c.y, 1);
+  }
+
+  const pp = pointAt(S.player.p);
+  const tx = pp.x - (W*.30)/SCALE, ty = pp.y;
+  S.cam.x += (tx - S.cam.x)*(1 - Math.exp(-6*dt));
+  S.cam.y += (ty - S.cam.y)*(1 - Math.exp(-3.5*dt));
+
+  const over = e => e.p >= T.LEN;
+  if(over(S.player) || over(S.bot)){
+    const crossAt = e => over(e) ? (T.LEN - (e.p - e.v*dt))/Math.max(e.v,.01) : Infinity;
+    finish(crossAt(S.player) <= crossAt(S.bot));
+  }
+}
+
+/* ---------- jutalmak: EGY helyen számolva.
+   Az appban pontosan ez a függvény költözik majd a szerverre —
+   ott a kliens csak a nyers adatokat küldi, az összeget a szerver adja. */
+function rewardCalc(playerWon){
+  return {
+    coins : S.coinRun,
+    stars : S.boostGot * 2,
+    win   : playerWon ? 25 + 5*S.level : 0,
+  };
+}
+
+function finish(playerWon){
+  S.mode = 'done';
+  steamBtn.style.display = jumpBtn.style.display = 'none';
+  const gap = Math.max(0, Math.round(T.LEN - (playerWon ? S.bot.p : S.player.p)));
+  const t = S.raceT.toFixed(1).replace('.', ',');
+  const rw = rewardCalc(playerWon);
+  const total = rw.coins + rw.stars + rw.win;
+  P().coins += total;
+  if(playerWon) P().level = S.level + 1;
+  saveData();
+  S.lockUntil = performance.now() + 600;
+
+  panel.innerHTML = `
+    <h1>${playerWon ? 'Befutó: te!' : 'A gép nyert'}</h1>
+    <p>Idő: <span class="stat">${t} mp</span> ·
+       ${playerWon ? 'A bot lemaradása' : 'Lemaradásod'}:
+       <span class="stat">${gap} m</span></p>
+    <p>Érmék: <span class="gold">+${rw.coins}</span>
+       · Csillagok: <span class="gold">+${rw.stars}</span>
+       ${playerWon ? `· Győzelem: <span class="gold">+${rw.win}</span>` : ''}
+       &nbsp;→&nbsp; összesen <span class="gold">+${total}</span>
+       (egyenleg: <span class="gold">${P().coins}</span>)</p>
+    ${playerWon ? '' : `<p>Tipp: a kanyar előtt hagyd abba a nyomkodást —
+       vagy nézz be a műhelybe, a futómű pont ebben segít.</p>`}
+    <button id="next">${playerWon ? (S.level+1)+'. szint →' : 'Újra ('+S.level+'. szint)'}</button>
+    <button id="shopBtn" class="secondary">Műhely</button>
+    <button id="menuBtn" class="secondary">Főmenü</button>`;
+  overlay.classList.remove('hidden');
+  const guard = fn => () => { if(performance.now() >= S.lockUntil) fn(); };
+  document.getElementById('next').onclick    = guard(startLevel);
+  document.getElementById('shopBtn').onclick = guard(() => showShop('up'));
+  document.getElementById('menuBtn').onclick = guard(showMain);
+}
+
+/* =====================  KÉPERNYŐK  ===================== */
+function showOverlay(html){
+  overlay.classList.remove('hidden');
+  steamBtn.style.display = jumpBtn.style.display = 'none';
+  signEl.style.display = 'none';
+  S.mode = 'menu';
+  panel.innerHTML = html;
+}
+
+/* profilválasztó — a "bejelentkezés" helyi változata */
+function showProfiles(){
+  const rows = DATA.profiles.map(p => `
+    <div class="row">
+      <div class="info">
+        <div class="name">${esc(p.name)}</div>
+        <div class="desc">${p.level}. szint · ${p.coins} érme${p.email ? ' · '+esc(p.email) : ''}</div>
+      </div>
+      <button data-pick="${p.id}">Belépés</button>
+      <button class="secondary" data-del="${p.id}">✕</button>
+    </div>`).join('');
+  showOverlay(`
+    <h1>Ki játszik?</h1>
+    ${storageOK ? '' : `<p class="warn">A tartós mentés itt nem érhető el —
+      a haladás csak a lap bezárásáig marad meg.</p>`}
+    ${rows || '<p>Még nincs profil.</p>'}
+    <button id="newP" ${DATA.profiles.length >= 8 ? 'disabled' : ''}>Új profil</button>`);
+  panel.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
+    DATA.last = b.dataset.pick; saveData(); showMain();
+  });
+  panel.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    if(b.textContent !== 'Biztos?'){ b.textContent = 'Biztos?'; return; }   // kétlépcsős törlés
+    DATA.profiles = DATA.profiles.filter(p => p.id !== b.dataset.del);
+    if(DATA.last === b.dataset.del) DATA.last = null;
+    saveData(); showProfiles();
+  });
+  document.getElementById('newP').onclick = showCreate;
+}
+
+function showCreate(){
+  showOverlay(`
+    <h1>Új profil</h1>
+    <label>Név (kötelező)</label>
+    <input id="pname" maxlength="16" placeholder="pl. Dávid">
+    <label>E-mail (nem kötelező — csak azonosításra)</label>
+    <input id="pmail" maxlength="40" placeholder="valaki@pelda.hu">
+    <p class="warn" id="perr"></p>
+    <button id="mk">Létrehozás</button>
+    ${DATA.profiles.length ? '<button class="secondary" id="back">Vissza</button>' : ''}`);
+  document.getElementById('mk').onclick = () => {
+    const name = document.getElementById('pname').value.trim();
+    if(!name){ document.getElementById('perr').textContent = 'A név nem maradhat üresen.'; return; }
+    const p = ensureProfile({
+      id: 'p' + Date.now().toString(36) + Math.floor(Math.random()*1e4),
+      name, email: document.getElementById('pmail').value.trim(),
+    });
+    DATA.profiles.push(p); DATA.last = p.id;
+    saveData(); showMain();
+  };
+  const back = document.getElementById('back');
+  if(back) back.onclick = showProfiles;
+}
+
+function showMain(){
+  const p = P();
+  if(!p){ showProfiles(); return; }
+  showOverlay(`
+    <h1>Vonatverseny</h1>
+    <p><span class="stat">${esc(p.name)}</span> ·
+       ${p.level}. szint · <span class="gold">${p.coins} érme</span></p>
+    <button id="play">Indulás — ${p.level}. szint</button><br>
+    <button id="shop" class="secondary">Műhely</button>
+    <button id="paint" class="secondary">Festékbolt</button>
+    <button id="switch" class="secondary">Profilváltás</button>
+    <p><kbd>Space</kbd> nyomkodása = gőz · <kbd>W</kbd>/<kbd>↑</kbd> = ugrás.
+       A sárga tábla a kanyar határa — felette megcsúszol.
+       Rönk: átugrani. Csillag: ugorva elkapni. Érme: átgurulni rajta.</p>`);
+  document.getElementById('play').onclick   = startLevel;
+  document.getElementById('shop').onclick   = () => showShop('up');
+  document.getElementById('paint').onclick  = () => showShop('paint');
+  document.getElementById('switch').onclick = showProfiles;
+}
+
+function showShop(tab){
+  const p = P();
+  let rows = '';
+  if(tab === 'up'){
+    rows = UPS.map(u => {
+      const lvl = p.up[u.id], maxed = lvl >= u.max;
+      const cost = maxed ? 0 : upCost(u, lvl);
+      return `<div class="row">
+        <div class="info">
+          <div class="name">${u.name} &nbsp;${'●'.repeat(lvl)}${'○'.repeat(u.max-lvl)}</div>
+          <div class="desc">${u.desc}</div>
+        </div>
+        <button data-buy="${u.id}" ${maxed || p.coins < cost ? 'disabled' : ''}>
+          ${maxed ? 'MAX' : cost + ' 🪙'}
+        </button>
+      </div>`;
+    }).join('');
+  }else{
+    rows = PAINTS.map(pa => {
+      const owned = p.paints.includes(pa.c), active = p.paint === pa.c;
+      return `<div class="row">
+        <div class="swatch" style="background:${pa.c}"></div>
+        <div class="info">
+          <div class="name">${pa.name}</div>
+          <div class="desc">${owned ? (active ? 'Ezt viseled' : 'Megvéve') : pa.price + ' érme'}</div>
+        </div>
+        <button data-paint="${pa.c}" ${active || (!owned && p.coins < pa.price) ? 'disabled' : ''}>
+          ${active ? 'Aktív' : owned ? 'Felvesz' : 'Vétel'}
+        </button>
+      </div>`;
+    }).join('');
+  }
+  showOverlay(`
+    <h1>${tab === 'up' ? 'Műhely' : 'Festékbolt'}</h1>
+    <p>Egyenleg: <span class="gold">${p.coins} érme</span></p>
+    ${rows}
+    <button id="tabBtn" class="secondary">${tab === 'up' ? 'Festékbolt →' : '← Műhely'}</button>
+    <button id="back" class="secondary">Főmenü</button>`);
+  panel.querySelectorAll('[data-buy]').forEach(b => b.onclick = () => {
+    const u = UPS.find(x => x.id === b.dataset.buy);
+    const cost = upCost(u, p.up[u.id]);
+    if(p.up[u.id] >= u.max || p.coins < cost) return;
+    p.coins -= cost; p.up[u.id]++;
+    saveData(); showShop('up');
+  });
+  panel.querySelectorAll('[data-paint]').forEach(b => b.onclick = () => {
+    const pa = PAINTS.find(x => x.c === b.dataset.paint);
+    if(!p.paints.includes(pa.c)){
+      if(p.coins < pa.price) return;
+      p.coins -= pa.price; p.paints.push(pa.c);
+    }
+    p.paint = pa.c;
+    saveData(); showShop('paint');
+  });
+  document.getElementById('tabBtn').onclick = () => showShop(tab === 'up' ? 'paint' : 'up');
+  document.getElementById('back').onclick = showMain;
+}
+
+/* =====================  BEMENET  ===================== */
+addEventListener('keydown', e => {
+  if(e.code === 'Space'){ e.preventDefault(); if(!e.repeat) tap();  }
+  if(e.code === 'ArrowUp' || e.code === 'KeyW'){
+    e.preventDefault(); if(!e.repeat) jump();
+  }
+});
+steamBtn.addEventListener('pointerdown', e => { e.preventDefault(); tap();  });
+jumpBtn .addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
+canvas  .addEventListener('pointerdown', e => { e.preventDefault(); tap();  });
+addEventListener('contextmenu', e => e.preventDefault());
+
+/* =====================  FŐ CIKLUS  ===================== */
+let last = performance.now();
+function loop(now){
+  const dt = Math.min((now - last)/1000, 0.05);
+  last = now;
+  update(dt);
+  if(S.shake > 0) S.shake -= dt;
+
+  ctx.save();
+  if(S.shake > 0)
+    ctx.translate((Math.random()-.5)*10*S.shake, (Math.random()-.5)*10*S.shake);
+
+  const s0 = Math.max(0, sAtX(S.cam.x) - 20);
+  const s1 = Math.min(T.pts.length*DS - DS, sAtX(S.cam.x + W/SCALE) + 20);
+
+  drawGround();
+  drawTracks(s0, s1);
+  drawFinish();
+  drawSigns(s0, s1);
+  drawCoins(s0, s1, now/1000);
+  drawObstacles(s0, s1);
+  drawTrees();
+  drawTrain(S.bot, OFF_B, '#2F3237', '#E8B93E', 0);
+  const airH = S.air > 0 ? Math.sin(Math.PI*(1 - S.air/S.eff.jumpT)) : 0;
+  drawTrain(S.player, OFF_P, P() ? P().paint : '#C63B2C', '#F2E8CF', airH);
+  drawBoosters(s0, s1, now/1000);
+  drawParticles(dt);
+
+  if(S.mode === 'race'){
+    const lim = minLimAhead(S.player.p, 30) * S.eff.limMul;
+    if(lim < 900 && S.player.v > lim + .5 && S.skidT <= 0){
+      const c = chimney(S.player, OFF_P);
+      ctx.fillStyle = Math.floor(now/180)%2 ? '#C63B2C' : '#F4EBD0';
+      ctx.textAlign = 'center';
+      ctx.font = `900 ${Math.round(SCALE*2)}px system-ui`;
+      ctx.fillText('LASSÍTS!', w2sx(c.x), w2sy(c.y) - SCALE*5);
+    }
+  }
+  ctx.restore();
+
+  if(S.mode === 'race' || S.mode === 'count' || S.mode === 'done'){
+    drawGauge(); drawMinimap(); drawCoinHud();
+  }
+  if(S.mode === 'count' || S.goFlash > 0){
+    ctx.fillStyle = 'rgba(20,50,79,.85)';
+    ctx.font = '900 ' + Math.round(H*.2) + 'px system-ui';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(S.mode === 'count' ? Math.ceil(S.count) : 'RAJT!', W/2, H/2);
+    ctx.textBaseline = 'alphabetic';
+  }
+  requestAnimationFrame(loop);
+}
+
+/* =====================  INDÍTÁS  ===================== */
+resize();
+T = genTrack(1);
+{ const st = pointAt(30); S.cam.x = st.x - (W*.3)/SCALE; S.cam.y = st.y; }
+panel.innerHTML = '<h1>Vonatverseny</h1><p>Betöltés…</p>';
+requestAnimationFrame(loop);
+loadData().then(() => {
+  DATA.profiles.forEach(ensureProfile);
+  DATA.profiles.length ? (DATA.last && P() ? showMain() : showProfiles())
+                       : showCreate();
+});
+</script>
+</body>
+</html>
