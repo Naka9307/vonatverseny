@@ -129,6 +129,7 @@ const CFG = {
   BOOST    : 7,    BOOST_CAP: 29,    JUMP_T : 0.55,
   LAT_A    : 1.4,  LIM_MIN  : 9,     LIM_MAX: 15,
   BOT_BASE : 8.0,  BOT_STEP : 1.3,   BOT_ACC: 6,  BOT_BRAKE: 9,
+  ZOOM     : 1.0,  // kamera-közelség szorzó: 0.85 = távolabbi, 1.15 = közelebbi kép
 };
 const DS = 2;
 
@@ -178,23 +179,46 @@ function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
   let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t;
   return ((t^t>>>14)>>>0)/4294967296; }; }
 
-/* =====================  MENTÉS — tartós tároló  =====================
-   Minden összetartozó adat EGY kulcs alatt: egyetlen írás/olvasás,
-   nincs részleges mentés. Ha a tároló nem elérhető, a játék megy
-   tovább memóriából, és a profilképernyő jelzi, hogy nincs mentés. */
+/* =====================  MENTÉS — tároló-adapter  =====================
+   A játék három környezetben futhat, és mindegyik mást tud:
+   1. Claude-chat:    window.storage (egyedi, csak itt létező API)
+   2. saját weboldal: localStorage (böngésző-szabvány)
+   3. egyik sem:      memória — a haladás a lap bezárásáig él
+   Az adapter mindhárom fölé ugyanazt a két műveletet (load/save) adja,
+   így a játék többi részének fogalma sincs róla, hol fut. Ez az
+   "adapter minta": a környezetfüggő részt egyetlen helyre zárjuk. */
+const KEY = 'vonatverseny-save';
+const store = (() => {
+  if(typeof window.storage?.get === 'function')
+    return {
+      kind:'artifact',
+      async load(){ try{ const r = await window.storage.get(KEY); return r?.value ?? null; }
+                    catch(e){ return null; } },          // nincs még kulcs = első indítás
+      async save(v){ await window.storage.set(KEY, v); },
+    };
+  try{
+    localStorage.setItem('vv-proba','1'); localStorage.removeItem('vv-proba');
+    return {
+      kind:'local',
+      async load(){ return localStorage.getItem(KEY); },
+      async save(v){ localStorage.setItem(KEY, v); },
+    };
+  }catch(e){ /* privát mód vagy letiltott tárolás — megyünk memóriából */ }
+  return { kind:'none', async load(){ return null; }, async save(){} };
+})();
+
 let DATA = { v:1, profiles:[], last:null };
-let storageOK = typeof window.storage?.get === 'function';
+let storageOK = store.kind !== 'none';
 
 async function loadData(){
-  if(!storageOK) return;
   try{
-    const r = await window.storage.get('vonatverseny-save');
-    if(r && r.value) DATA = JSON.parse(r.value);
-  }catch(e){ /* nincs még mentés — első indítás, ez nem hiba */ }
+    const v = await store.load();
+    if(v) DATA = JSON.parse(v);
+  }catch(e){ /* sérült mentés — tiszta lappal indulunk, nem fagyunk le */ }
 }
 async function saveData(){
   if(!storageOK) return;
-  try{ await window.storage.set('vonatverseny-save', JSON.stringify(DATA)); }
+  try{ await store.save(JSON.stringify(DATA)); }
   catch(e){ storageOK = false; }
 }
 function ensureProfile(p){                    // régi mentések kiegészítése
@@ -227,6 +251,7 @@ const S = {
   puffs:[], sparks:[], texts:[],
   shake:0, lockUntil:0,
   cam:{ x:0, y:0 },
+  vZoom: 0,          // lassan szűrt sebesség — csak a zoom követi
 };
 let T = null;
 
@@ -237,7 +262,16 @@ function resize(){
   W = stage.clientWidth; H = stage.clientHeight;
   canvas.width = W*dpr; canvas.height = H*dpr;
   ctx.setTransform(dpr,0,0,dpr,0,0);
-  SCALE = Math.max(4, Math.min(H/55, W/70));
+  SCALE = targetScale();               // méretváltáskor azonnal beállunk
+}
+/* Sebességfüggő automatikus zoom — de NEM a pillanatnyi sebességből.
+   A sebesség minden gombnyomásnál felugrik, majd visszaesik (fűrészfog);
+   ha a zoom ezt követné, a kamera minden nyomásra pumpálna. Ezért a
+   zoom egy külön, lassan szűrt sebességet (vZoom) követ. A 34 m alap +
+   sebességenként 2,2 m nagyjából állandó ~3–5 mp előrelátást ad. */
+function targetScale(){
+  const ahead = 34 + S.vZoom * 2.2;
+  return clamp((W * 0.72) / ahead * CFG.ZOOM, 3.5, Math.min(10, H/50));
 }
 addEventListener('resize', resize);
 const w2sx = wx => (wx - S.cam.x)*SCALE;
@@ -645,6 +679,7 @@ function startLevel(){
   S.boostGot = 0; S.coinRun = 0;
   S.puffs = []; S.sparks = []; S.texts = [];
   S.raceT = 0; S.goFlash = 0; S.count = 3; S.mode = 'count';
+  S.vZoom = 0;
   const st = pointAt(0);
   S.cam.x = st.x - (W*.30)/SCALE; S.cam.y = st.y;
   signEl.textContent = S.level + '. szint';
@@ -950,6 +985,9 @@ function loop(now){
   const dt = Math.min((now - last)/1000, 0.05);
   last = now;
   update(dt);
+  /* a zoom bemenete: lassan szűrt sebesség (nem pumpál a nyomásokra) */
+  S.vZoom += (S.player.v - S.vZoom) * (1 - Math.exp(-0.8*dt));
+  SCALE += (targetScale() - SCALE) * (1 - Math.exp(-2.5*dt));
   if(S.shake > 0) S.shake -= dt;
 
   ctx.save();
