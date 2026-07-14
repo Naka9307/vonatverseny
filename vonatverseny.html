@@ -617,6 +617,11 @@ function drawParticles(dt){
 
 /* ---------- HUD ---------- */
 function drawGauge(){
+  ctx.save();
+  // Dinamikus méretezés a képernyő kisebbik oldala alapján
+  const sc = clamp(Math.min(W, H) / 400, 0.6, 1.5);
+  ctx.scale(sc, sc);
+
   const cx = 64, cy = 64, R = 42;
   ctx.beginPath(); ctx.arc(cx,cy,R+5,0,7); ctx.fillStyle='#B08D57'; ctx.fill();
   ctx.beginPath(); ctx.arc(cx,cy,R,0,7);   ctx.fillStyle='#F4EBD0'; ctx.fill();
@@ -642,6 +647,8 @@ function drawGauge(){
   ctx.font='700 9px system-ui';  ctx.fillText('GŐZ', cx, cy+18);
   ctx.font='800 12px system-ui';
   ctx.fillText(Math.round(S.player.v*3.6)+' km/h', cx, cy+R+18);
+  
+  ctx.restore();
 }
 function drawCoinHud(){
   const x = W-30, y = 30;
