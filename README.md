@@ -3,7 +3,7 @@
 
 A browser-based train racing game written in vanilla JavaScript with HTML5 Canvas — no frameworks, no build step, one file.
 
-**Play it here:** https://Naka9307.github.io/vonatverseny/ **
+**Play it here:** https://Naka9307.github.io/vonatverseny/vonatverseny.html **
 
 ## Gameplay
 
