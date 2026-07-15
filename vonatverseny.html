@@ -285,6 +285,8 @@ function authHiba(e){
   if(m.toLowerCase().includes('rate limit') || m.includes('Too many'))
                                         return 'Túl sok próbálkozás — várj egy-két percet.';
   if(m.includes('already registered'))  return 'Ezzel a címmel már van fiók — lépj be.';
+  if(m.toLowerCase().includes('provider') && m.includes('not enabled'))
+                                        return 'A Google-belépés még nincs bekapcsolva a Supabase-ben.';
   return 'Nem sikerült: ' + m;
 }
 
@@ -906,7 +908,7 @@ function showProfiles(){
   const acct = !sb ? '' : (authUser
     ? `<p>Bejelentkezve: <span class="stat">${esc(authUser.email || '')}</span></p>
        <button id="logout" class="secondary">Kijelentkezés</button>`
-    : `<button id="login">Belépés / Regisztráció (e-mail)</button>`);
+    : `<button id="login">Belépés fiókkal (Google / e-mail)</button>`);
   const rows = DATA.profiles.map(p => `
     <div class="row">
       <div class="info">
@@ -944,6 +946,8 @@ function showProfiles(){
 function showLogin(){
   showOverlay(`
     <h1>Belépés</h1>
+    <button id="doGoogle">Belépés Google-fiókkal</button>
+    <p class="warn">— vagy e-maillel —</p>
     <label>E-mail</label>
     <input id="lmail" type="email" placeholder="te@pelda.hu">
     <label>Jelszó (legalább 6 karakter)</label>
@@ -955,6 +959,18 @@ function showLogin(){
   const err  = t => { document.getElementById('lerr').textContent = t; };
   const vals = () => [ document.getElementById('lmail').value.trim(),
                        document.getElementById('lpass').value ];
+  /* Google: átirányítunk a Google-höz, ő pedig ide hoz vissza — a
+     visszaérkezést ugyanaz az auth-esemény kezeli, mint minden mást.
+     A redirectTo az aktuális oldal, így index.html-ről és
+     vonatverseny.html-ről indítva is a jó helyre jövünk vissza. */
+  document.getElementById('doGoogle').onclick = async () => {
+    err('Átirányítás a Google-höz…');
+    const { error } = await sb.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: location.origin + location.pathname },
+    });
+    if(error) err(authHiba(error));
+  };
   document.getElementById('doLogin').onclick = async () => {
     const [email, password] = vals();
     if(!email || !password) return err('E-mail és jelszó is kell.');
