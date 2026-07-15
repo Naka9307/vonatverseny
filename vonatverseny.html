@@ -923,9 +923,9 @@ function showProfiles(){
     ${storageOK ? '' : `<p class="warn">A tartós mentés itt nem érhető el —
       a haladás csak a lap bezárásáig marad meg.</p>`}
     ${acct}
-    <h2>Helyi profilok</h2>
-    ${rows || '<p>Még nincs helyi profil.</p>'}
-    <button id="newP" ${DATA.profiles.length >= 8 ? 'disabled' : ''}>Új helyi profil</button>`);
+    <h2>Vendégprofilok</h2>
+    ${rows || '<p>Még nincs vendégprofil.</p>'}
+    <button id="newP" ${DATA.profiles.length >= 8 ? 'disabled' : ''}>Új vendégprofil</button>`);
   panel.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => {
     DATA.last = b.dataset.pick; saveData(); showMain();
   });
@@ -955,7 +955,8 @@ function showLogin(){
     <p class="warn" id="lerr"></p>
     <button id="doLogin">Belépés</button>
     <button id="doReg" class="secondary">Regisztráció</button>
-    <button id="back" class="secondary">Vissza</button>`);
+    <button id="guest" class="secondary">Játék vendégként (fiók nélkül)</button>
+    ${DATA.profiles.length ? '<button id="back" class="secondary">Vissza</button>' : ''}`);
   const err  = t => { document.getElementById('lerr').textContent = t; };
   const vals = () => [ document.getElementById('lmail').value.trim(),
                        document.getElementById('lpass').value ];
@@ -995,31 +996,33 @@ function showLogin(){
       document.getElementById('back2').onclick = showProfiles;
     }
   };
-  document.getElementById('back').onclick = showProfiles;
+  document.getElementById('guest').onclick = showCreate;
+  const bk = document.getElementById('back');
+  if(bk) bk.onclick = showProfiles;
 }
 
 function showCreate(){
   showOverlay(`
-    <h1>Új profil</h1>
+    <h1>Vendégprofil</h1>
+    <p class="warn">A vendégprofil csak ezen az eszközön él — fiókkal a
+       haladásod később eszközök között is követni fog.</p>
     <label>Név (kötelező)</label>
     <input id="pname" maxlength="16" placeholder="pl. Dávid">
-    <label>E-mail (nem kötelező — csak azonosításra)</label>
-    <input id="pmail" maxlength="40" placeholder="valaki@pelda.hu">
     <p class="warn" id="perr"></p>
     <button id="mk">Létrehozás</button>
-    ${DATA.profiles.length ? '<button class="secondary" id="back">Vissza</button>' : ''}`);
+    ${(DATA.profiles.length || sb) ? '<button class="secondary" id="back">Vissza</button>' : ''}`);
   document.getElementById('mk').onclick = () => {
     const name = document.getElementById('pname').value.trim();
     if(!name){ document.getElementById('perr').textContent = 'A név nem maradhat üresen.'; return; }
     const p = ensureProfile({
       id: 'p' + Date.now().toString(36) + Math.floor(Math.random()*1e4),
-      name, email: document.getElementById('pmail').value.trim(),
+      name, email: '',
     });
     DATA.profiles.push(p); DATA.last = p.id;
     saveData(); showMain();
   };
   const back = document.getElementById('back');
-  if(back) back.onclick = showProfiles;
+  if(back) back.onclick = () => DATA.profiles.length ? showProfiles() : showLogin();
 }
 
 function showMain(){
@@ -1181,8 +1184,10 @@ loadData().then(() => {
   DATA.profiles.forEach(ensureProfile);
   dataReady = true;
   ensureAuthProfile();          // ha a fiók már be van lépve, kösse be a profilját
+  /* új látogató alapból a belépéshez érkezik; vendégprofil-készítés
+     csak akkor az első képernyő, ha a fiókrendszer el sem érhető */
   DATA.profiles.length ? (DATA.last && P() ? showMain() : showProfiles())
-                       : showCreate();
+                       : (sb ? showLogin() : showCreate());
 });
 </script>
 </body>
