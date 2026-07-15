@@ -1,4 +1,1 @@
-# Telepítés: pip install -r requirements.txt
-fastapi[standard]
-psycopg[binary]
-python-dotenv
+
